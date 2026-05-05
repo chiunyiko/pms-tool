@@ -1513,8 +1513,14 @@ async function initApp(){
     console.log('[PMS] 載入專案資料...');
     const projs = await apiGetWithRetry('getProjects');
     if(Array.isArray(projs) && projs.length > 0){
-      projects = projs;
-      console.log(`[PMS] ✓ 載入 ${projs.length} 筆專案`);
+      projects = projs.map(p=>({
+        ...p,
+        start: String(p.start||'').slice(0,10),
+        end:   String(p.end||'').slice(0,10),
+        amt:   Number(p.amt)||0,
+        id:    Number(p.id)||0
+      }));
+      console.log(`[PMS] ✓ 載入 ${projects.length} 筆，首筆日期: ${projects[0]&&projects[0].start}`);
     } else {
       console.log('[PMS] Sheets 空白，寫入預設資料...');
       projects = JSON.parse(JSON.stringify(DEFAULT));
@@ -1522,7 +1528,9 @@ async function initApp(){
     }
   } catch(e) {
     console.error('[PMS] ✗ 載入專案失敗:', e.message);
-    projects = JSON.parse(JSON.stringify(DEFAULT));
+    if(projects.length === 0){
+      projects = JSON.parse(JSON.stringify(DEFAULT));
+    }
     showOfflineBanner(e.message);
   }
 
@@ -1562,6 +1570,8 @@ function showOfflineBanner(errMsg){
   document.body.prepend(banner);
 }
 initApp();
+
+
 
 </script>
 </body>
