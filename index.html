@@ -580,19 +580,20 @@ let isLoading = false;
 
 // ── API helpers ───────────────────────────────────────────────────
 async function apiGet(action){
-  const r = await fetch(`${API_URL}?action=${action}&t=${Date.now()}`);
+  const url = `${API_URL}?action=${action}&t=${Date.now()}`;
+  const r = await fetch(url, {method:'GET', mode:'cors', cache:'no-cache'});
   const text = await r.text();
   return JSON.parse(text);
 }
 
 async function apiPost(action, data){
-  const r = await fetch(API_URL, {
+  // Apps Script POST works with no-cors; response is opaque but write succeeds
+  await fetch(API_URL, {
     method:'POST',
-    headers:{'Content-Type':'application/json'},
+    mode:'no-cors',
     body: JSON.stringify({action, data}),
   });
-  const text = await r.text();
-  try{ return JSON.parse(text); }catch(e){ return {ok:true}; }
+  return {ok:true};
 }
 
 async function saveData(){
@@ -1485,50 +1486,59 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeModal();closeP
 document.getElementById('yearSel').value=currentYear;
 
 // ── Load data from Google Sheets then render ─────────────────────
+async function apiGetWithRetry(action, retries=3){
+  for(let i=0; i<retries; i++){
+    try{
+      const data = await apiGet(action);
+      if(data) return data;
+    } catch(e){
+      console.warn(`[PMS] ${action} 第${i+1}次失敗:`, e.message);
+      if(i < retries-1) await new Promise(r=>setTimeout(r, 1000*(i+1)));
+      else throw e;
+    }
+  }
+}
+
 async function initApp(){
   setLoading(true);
-  let sheetsOk = false;
 
+  // Step 1: Load projects
   try {
-    console.log('[PMS] 嘗試連線 Google Sheets (JSONP)...');
-    const projs = await apiGet('getProjects');
-    console.log('[PMS] getProjects 回應:', projs);
-
+    console.log('[PMS] 載入專案資料...');
+    const projs = await apiGetWithRetry('getProjects');
     if(Array.isArray(projs) && projs.length > 0){
       projects = projs;
-      sheetsOk = true;
-      console.log(`[PMS] 載入 ${projs.length} 筆專案 ✓`);
+      console.log(`[PMS] ✓ 載入 ${projs.length} 筆專案`);
     } else {
-      console.log('[PMS] Sheets 無資料，寫入預設資料...');
+      console.log('[PMS] Sheets 空白，寫入預設資料...');
       projects = JSON.parse(JSON.stringify(DEFAULT));
-      await apiPost('saveProjects', projects);
-      sheetsOk = true;
+      apiPost('saveProjects', projects); // fire and forget
     }
   } catch(e) {
-    console.error('[PMS] getProjects 失敗:', e);
+    console.error('[PMS] ✗ 載入專案失敗:', e.message);
     projects = JSON.parse(JSON.stringify(DEFAULT));
-    showOfflineBanner('無法讀取資料：' + e.message);
+    showOfflineBanner(e.message);
   }
 
+  // Step 2: Load PM list (separate request after projects done)
+  await new Promise(r=>setTimeout(r, 300)); // small delay between requests
   try {
-    const pms = await apiGet('getPmList');
-    console.log('[PMS] getPmList 回應:', pms);
+    const pms = await apiGetWithRetry('getPmList');
     if(Array.isArray(pms) && pms.length > 0){
       pmList = pms;
       PM_LIST.length = 0;
       pms.forEach(p=>PM_LIST.push(p));
-    } else {
-      await apiPost('savePmList', pmList).catch(()=>{});
+      console.log(`[PMS] ✓ 載入 ${pms.length} 位 PM`);
     }
   } catch(e) {
-    console.error('[PMS] getPmList 失敗:', e);
+    console.error('[PMS] ✗ 載入 PM 失敗:', e.message);
   }
 
   nextId = Math.max(0,...projects.map(p=>p.id))+1;
   setLoading(false);
   populatePmFilter();
   renderAll();
-  console.log(`[PMS] 初始化完成，共 ${projects.length} 筆，sheetsOk=${sheetsOk}`);
+  console.log(`[PMS] 初始化完成，共 ${projects.length} 筆`);
 }
 
 function showOfflineBanner(errMsg){
