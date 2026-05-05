@@ -581,7 +581,13 @@ let isLoading = false;
 // ── API helpers ───────────────────────────────────────────────────
 async function apiGet(action){
   const url = `${API_URL}?action=${action}&t=${Date.now()}`;
-  const r = await fetch(url, {method:'GET', mode:'cors', cache:'no-cache'});
+  const r = await fetch(url, {
+    method:'GET',
+    mode:'cors',
+    cache:'no-cache',
+    redirect:'follow',
+    credentials:'omit'
+  });
   const text = await r.text();
   return JSON.parse(text);
 }
